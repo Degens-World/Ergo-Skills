@@ -1,0 +1,6 @@
+interface:
+  display_name: "Local Ergo Node Deployment"
+  short_description: "Deploys a local Ergo full node by downloading the client, creating a configuration file, and launching the node process."
+
+policy:
+  allow_implicit_invocation: true
