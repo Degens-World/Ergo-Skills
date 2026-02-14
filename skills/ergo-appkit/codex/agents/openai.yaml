@@ -1,0 +1,6 @@
+interface:
+  display_name: "Ergo Appkit Code Generator"
+  short_description: "Generates boilerplate Java code for common tasks using the Ergo Appkit library, such as creating transactions, connecting to a node, and issuing tokens."
+
+policy:
+  allow_implicit_invocation: true
