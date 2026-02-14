@@ -1,0 +1,6 @@
+interface:
+  display_name: "Nautilus Wallet dApp Connector"
+  short_description: "Connect to a user's Nautilus wallet on the Ergo blockchain to check balances, get addresses, sign transactions, and submit them to the network, following the EIP-12 dApp Connector standard."
+
+policy:
+  allow_implicit_invocation: true
