@@ -1,0 +1,6 @@
+interface:
+  display_name: "Ergo WASM Cryptographic Toolkit"
+  short_description: "A comprehensive client-side toolkit for creating, signing, and manipulating Ergo blockchain data structures like transactions, addresses, and contracts using WASM-compiled sigma-rust cryptographic libraries."
+
+policy:
+  allow_implicit_invocation: true
