@@ -1,0 +1,6 @@
+interface:
+  display_name: "Fleet SDK: Ergo Transaction Builder"
+  short_description: "Build and sign a transaction for the Ergo blockchain using the Fleet SDK. This skill constructs a transaction from specified inputs and outputs, signs it with a provided key, and returns the EIP-12 compliant transaction object."
+
+policy:
+  allow_implicit_invocation: true
