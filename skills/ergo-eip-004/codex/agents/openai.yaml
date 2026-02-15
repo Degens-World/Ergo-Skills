@@ -1,0 +1,6 @@
+interface:
+  display_name: "Ergo EIP-004 NFT Standard"
+  short_description: "A skill to create and interpret Ergo EIP-004 compliant Non-Fungible Tokens (NFTs), providing asset issuance and data parsing functionalities according to the standard."
+
+policy:
+  allow_implicit_invocation: true
