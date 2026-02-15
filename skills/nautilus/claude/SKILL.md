@@ -199,11 +199,32 @@ An error response object will look like this:
 - **Transaction Verification**: The wallet will display the transaction details for the user to verify. The agent's description of the transaction should match what the user will see in their wallet.
 
 ## Troubleshooting
-- **`ergoConnector` Not Found**: This means the Nautilus Wallet extension is not installed or enabled in the browser environment where the agent is operating. The skill cannot function without it.
+- **`ergoConnector` Not Found**: This means the Nautilus Wallet extension is not installed or enabled in the browser environment where the agent is operating. The skill cannot function without it. Also ensure the page is served over `http://` or `https://` — browser extensions cannot inject `ergoConnector` into `file://` pages (see Protocol Requirement below).
 - **Connection Refused**: The user explicitly clicked 'Cancel' or 'Reject' on the connection prompt. The agent should respect this choice.
 - **Transaction Signing Fails**: Could be due to `InvalidRequest` (a malformed transaction object sent by the agent) or `Refused` (user cancelled). If it's `InvalidRequest`, the agent must debug the structure of the `tx` object it generated.
 
 
+
+## Protocol Requirement
+
+Pages must be served over `http://` or `https://`. Browser extensions cannot inject `ergoConnector` into `file://` pages. Use a local dev server (`npx serve`, `python -m http.server`, VS Code Live Server) during development.
+
+## Extension Injection Timing
+
+`window.ergoConnector` is injected asynchronously by the extension after page load. Do NOT check for it synchronously. Poll for it:
+
+```javascript
+function waitForErgoConnector(timeout = 3000) {
+    return new Promise(resolve => {
+        if (window.ergoConnector) return resolve(true);
+        const t0 = Date.now();
+        const timer = setInterval(() => {
+            if (window.ergoConnector) { clearInterval(timer); resolve(true); }
+            else if (Date.now() - t0 >= timeout) { clearInterval(timer); resolve(false); }
+        }, 100);
+    });
+}
+```
 
 ## Input Schema
 

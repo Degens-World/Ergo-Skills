@@ -41,9 +41,44 @@ These registers are standard for any Ergo token:
 #### EIP-004 Specific Registers:
 These registers uniquely define the asset as an EIP-004 NFT.
 
--   `R7` (Coll[Byte]): A tuple of `(Int, Coll[Byte])` representing `(Link Type, Link Content)`. For EIP-004, this MUST contain the link to the off-chain metadata file. The recommended format is `(2, \"ipfs://<CID>\")`, where `CID` is the Content Identifier of the JSON metadata file on IPFS. The value `2` signifies an HTTP link, and IPFS content is accessed via HTTP gateways.
+-   `R7` (Coll[Byte]): Intended to contain a link to the off-chain metadata file, typically as a tuple of `(Int, Coll[Byte])` representing `(Link Type, Link Content)`. The recommended format is `(2, \"ipfs://<CID>\")`. However, in practice many NFTs store only a type marker here (e.g., `0101`) rather than a valid IPFS URI. See R7 Content Clarification below for parsing guidance.
 -   `R8` (Coll[Byte]): SHA-256 hash of the main artwork file. The content of this register is a `Coll[Byte]` representing the 32-byte hash digest. This provides an on-chain integrity check for the primary media file.
 -   `R9` (Coll[Byte]): A tuple of `(Int, Coll[Byte])` representing `(Cover Art Type, Cover Art Link)`. This optional register provides a link to a smaller, optimized image file (like a thumbnail) for faster loading in lists and galleries.
+
+#### Explorer API Register Format
+
+**Important**: The Ergo Explorer API (`/api/v1/boxes/{boxId}`) does NOT return registers as plain hex strings. Registers are returned as objects:
+
+```json
+"R9": {
+    "serializedValue": "0e42697066733a2f2f...",
+    "sigmaType": "Coll[SByte]",
+    "renderedValue": "697066733a2f2f..."
+}
+```
+
+-   `renderedValue` = raw hex bytes (no serialization prefix) — decode this directly with hex-to-UTF8.
+-   `serializedValue` = includes `0e` prefix + VLQ length — must strip those first.
+-   Always use `renderedValue` when available.
+
+#### Token ID vs Box ID (Two-Step Lookup)
+
+The `tokenId` is NOT the same as the `boxId`. To retrieve the issuance box registers for an NFT:
+
+1.  Fetch `/api/v1/tokens/{tokenId}` — returns `{ "boxId": "..." }`.
+2.  Fetch `/api/v1/boxes/{boxId}` — returns `{ "additionalRegisters": { "R4": {...}, "R5": {...}, ... "R9": {...} } }`.
+
+#### R7 Content Clarification
+
+R7 often contains just `0101` (a type indicator), NOT a valid IPFS URI. Many NFTs only store the image link in R9 and leave R7 as a type marker. The recommended parsing order is:
+
+1.  Check R9 first (cover art / direct image link).
+2.  Only try R7 as a metadata JSON fallback if R9 is empty.
+3.  If R7 decodes to a valid `ipfs://` URI, fetch the JSON and read `media[0].uri`.
+
+#### Image Loading in Browser Context
+
+When loading IPFS images in a web page, do NOT use `loading="lazy"` on images created in memory. Lazy loading uses `IntersectionObserver` — if the `<img>` is not in the DOM, the browser never triggers the load. Always append the image to the DOM first, then set `src`.
 
 ### 2.2. Off-Chain Metadata (JSON Structure)
 
@@ -119,13 +154,13 @@ This operation retrieves and interprets the data of an existing EIP-004 NFT.
 **Process Flow:**
 
 1.  The agent provides the `token_id` of the NFT.
-2.  The skill queries the Ergo blockchain (via a node or explorer API) to find the issuance transaction for that `token_id`.
-3.  It reads the registers (`R4` through `R9`) from the issuance box.
-4.  It extracts the metadata URI from `R7` (e.g., `ipfs://<CID>`).
-5.  It resolves this URI using the specified or default IPFS gateway.
-6.  It fetches and parses the off-chain JSON metadata file.
-7.  It validates the NFT's integrity by comparing the hash in `R8` with the hash of the main media file specified in the JSON (`media[0].sha256`).
-8.  Finally, it returns a consolidated view of the NFT, combining on-chain and off-chain data.
+2.  Fetch `/api/v1/tokens/{tokenId}` to get the `boxId` of the issuance box. The `tokenId` is NOT the `boxId`.
+3.  Fetch `/api/v1/boxes/{boxId}` to read the registers (`R4` through `R9`). Registers are returned as objects with `renderedValue`, `serializedValue`, and `sigmaType` — use `renderedValue` for hex-to-UTF8 decoding.
+4.  Check R9 first for a cover art / direct image link. If R9 is empty, try R7 as a metadata JSON fallback. Note that R7 often contains just `0101` (a type marker), not a valid IPFS URI.
+5.  If a valid `ipfs://` URI is found, resolve it using the specified or default IPFS gateway.
+6.  If the URI points to a JSON metadata file, fetch and parse it, then read `media[0].uri` for the artwork link.
+7.  Validate the NFT's integrity by comparing the hash in `R8` with the hash of the main media file specified in the JSON (`media[0].sha256`).
+8.  Finally, return a consolidated view of the NFT, combining on-chain and off-chain data.
 
 ## 4. Building the Minting Transaction
 
@@ -214,34 +249,82 @@ This is a conceptual tool. Below is a Python script showing how one might implem
 import requests
 import json
 
-def parse_ergo_nft(token_id: str, ergo_node_api: str, ipfs_gateway: str = 'https://ipfs.io/ipfs/'):
-    # Step 1: Find the issuance box for the token ID (simplified)
-    # In reality, this requires searching the blockchain.
-    # We'll use a mock response for this example.
+def parse_ergo_nft(token_id: str, explorer_api: str = 'https://api.ergoplatform.com', ipfs_gateway: str = 'https://ipfs.io/ipfs/'):
+    # Step 1: Get the boxId from the tokenId (two-step lookup)
+    # token_resp = requests.get(f'{explorer_api}/api/v1/tokens/{token_id}')
+    # box_id = token_resp.json()['boxId']
+    # box_resp = requests.get(f'{explorer_api}/api/v1/boxes/{box_id}')
+    # issuance_box = box_resp.json()
+
+    # Mock response showing the ACTUAL Explorer API register format (objects, not hex strings)
     mock_issuance_box = {
         'boxId': 'f9e5ce5aa0d95f5d54a7bc89c46730d9a623271d7b42571b5ef1fd5f5e55b1b4',
-        'transactionId': 'f9e5ce5aa0d95f5d54a7bc89c46730d9a623271d7b42571b5ef1fd5f5e55b1b4',
         'value': 1000000,
         'assets': [{'tokenId': '0be1a7337a242c3886565106e8b4e7ce59b4ae6b334a6f7b31d1679469553fbe'}],
         'additionalRegisters': {
-            'R4': '4d79204572676f204e4654', # 'My Ergo NFT' in hex
-            'R5': '4120756e69717565206469676974616c20636f6c6c65637469626c652e', # 'A unique digital collectible.' in hex
-            'R6': '30', # '0' in hex
-            'R7': '0e1a697066733a2f2f516d5a576a4e396e504a746f7938384b63574c447068593466', # Tuple(Int, Coll[Byte]) encoding for 'ipfs://QmZWjN9nP....'
-            'R8': '0c20e557176a3d9326f55561a380963d30b62e4c849767f40555c110906a25b17da2' # SHA256 hash digest
+            'R4': {
+                'serializedValue': '0e0b4d79204572676f204e4654',
+                'sigmaType': 'Coll[SByte]',
+                'renderedValue': '4d79204572676f204e4654'  # 'My Ergo NFT' in hex
+            },
+            'R5': {
+                'serializedValue': '0e1d4120756e69717565206469676974616c20636f6c6c65637469626c652e',
+                'sigmaType': 'Coll[SByte]',
+                'renderedValue': '4120756e69717565206469676974616c20636f6c6c65637469626c652e'
+            },
+            'R6': {
+                'serializedValue': '0e0130',
+                'sigmaType': 'Coll[SByte]',
+                'renderedValue': '30'  # '0' in hex
+            },
+            'R7': {
+                'serializedValue': '0e020101',
+                'sigmaType': 'Coll[SByte]',
+                'renderedValue': '0101'  # Type marker, NOT an IPFS URI
+            },
+            'R8': {
+                'serializedValue': '0e20e557176a3d9326f55561a380963d30b62e4c849767f40555c110906a25b17da2',
+                'sigmaType': 'Coll[SByte]',
+                'renderedValue': 'e557176a3d9326f55561a380963d30b62e4c849767f40555c110906a25b17da2'
+            },
+            'R9': {
+                'serializedValue': '0e42697066733a2f2f516d5a576a4e396e504a746f7938384b63574c44706859346642...',
+                'sigmaType': 'Coll[SByte]',
+                'renderedValue': '697066733a2f2f516d5a576a4e396e504a746f7938384b63574c44706859346642...'
+            }
         }
     }
 
-    # Step 2: Parse on-chain data
-    on_chain_name = bytes.fromhex(mock_issuance_box['additionalRegisters']['R4']).decode('utf-8')
-    on_chain_hash_hex = mock_issuance_box['additionalRegisters']['R8'][4:] # Skip the first 2 bytes of encoding
+    # Step 2: Parse on-chain data using renderedValue (raw hex, no serialization prefix)
+    regs = mock_issuance_box['additionalRegisters']
+    on_chain_name = bytes.fromhex(regs['R4']['renderedValue']).decode('utf-8')
+    on_chain_hash_hex = regs['R8']['renderedValue']
 
-    # Step 3: Decode R7 to get the IPFS CID for metadata
-    # This is a simplified decoding
-    ipfs_cid = 'QmZWjN9nPjtoy88KcWLDphY4fK2z3z1g3Yk3gX2q2jH3g9' # Example CID
-    metadata_url = f'{ipfs_gateway}{ipfs_cid}'
+    # Step 3: Check R9 first for cover art / direct image link, then fall back to R7
+    # R7 often contains just '0101' (type marker), not a valid IPFS URI
+    artwork_uri = None
+    if 'R9' in regs:
+        r9_decoded = bytes.fromhex(regs['R9']['renderedValue']).decode('utf-8', errors='replace')
+        if r9_decoded.startswith('ipfs://'):
+            artwork_uri = r9_decoded
+    if not artwork_uri and 'R7' in regs:
+        r7_decoded = bytes.fromhex(regs['R7']['renderedValue']).decode('utf-8', errors='replace')
+        if r7_decoded.startswith('ipfs://'):
+            # R7 points to metadata JSON — fetch and read media[0].uri
+            metadata_url = f'{ipfs_gateway}{r7_decoded[7:]}'  # strip 'ipfs://'
 
-    # Step 4: Fetch off-chain metadata from IPFS
+    # Step 4: If we have a direct image URI from R9, use it directly
+    if artwork_uri:
+        return {
+            'success': True,
+            'token_id': token_id,
+            'name': on_chain_name,
+            'artwork_uri': artwork_uri,
+            'artwork_hash': on_chain_hash_hex,
+            'source': 'R9 (direct image link)'
+        }
+
+    # Step 5: If R7 had a metadata JSON link, fetch and parse it
     try:
         response = requests.get(metadata_url, timeout=10)
         response.raise_for_status()
@@ -249,12 +332,12 @@ def parse_ergo_nft(token_id: str, ergo_node_api: str, ipfs_gateway: str = 'https
     except (requests.RequestException, json.JSONDecodeError) as e:
         return {'success': False, 'error': f'Failed to fetch or parse metadata: {e}'}
 
-    # Step 5: Validate hash integrity
+    # Step 6: Validate hash integrity
     off_chain_hash = metadata.get('media', [{}])[0].get('sha256')
     if on_chain_hash_hex != off_chain_hash:
         return {'success': False, 'error': 'Hash mismatch between on-chain R8 and off-chain metadata'}
 
-    # Step 6: Return consolidated data
+    # Step 7: Return consolidated data
     return {
         'success': True,
         'token_id': token_id,
@@ -263,13 +346,14 @@ def parse_ergo_nft(token_id: str, ergo_node_api: str, ipfs_gateway: str = 'https
         'artwork_uri': metadata['media'][0]['uri'],
         'artwork_hash': off_chain_hash,
         'artwork_type': metadata['media'][0]['type'],
-        'additional_files': metadata.get('files', [])
+        'additional_files': metadata.get('files', []),
+        'source': 'R7 (metadata JSON)'
     }
 
 # --- Example Usage ---
 nft_data = parse_ergo_nft(
     token_id='0be1a7337a242c3886565106e8b4e7ce59b4ae6b334a6f7b31d1679469553fbe',
-    ergo_node_api='http://213.239.193.208:9053'
+    explorer_api='https://api.ergoplatform.com'
 )
 print(json.dumps(nft_data, indent=2))
 ```
