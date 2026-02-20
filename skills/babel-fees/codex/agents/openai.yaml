@@ -1,0 +1,6 @@
+interface:
+  display_name: "Ergo Babel Fee Box Discovery"
+  short_description: "A tool to discover and select Ergo Babel fee boxes (EIP-0031) for paying transaction fees in tokens instead of ERG. It finds on-chain liquidity boxes for a specific token and filters them by the required ERG amount."
+
+policy:
+  allow_implicit_invocation: true
